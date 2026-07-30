@@ -1,0 +1,182 @@
+================================================================================
+  DP-GUARD — АЛГОРИТМЫ И СТАТУС РЕАЛИЗАЦИИ (PROTOTYPE SKELETON v0.1)
+================================================================================
+
+Дата: 2026-07-19
+Версия: 0.1.0 (рабочий скелет, не полная реализация)
+
+
+================================================================================
+1. ОСНОВНЫЕ АЛГОРИТМЫ ИЗ СТАТЬИ
+================================================================================
+
+1.1 LAPLACE MECHANISM (Pure ε-DP)
+---------------------------------
+Формула из статьи (Telemetry Plane):
+
+    M_τ(X) = q_τ(X) + η,   η_i ~ Laplace(Δ₁(q_τ) / ε_τ)
+
+Реализация: dp_guard/telemetry_plane.py → TelemetryPlane.release_metric()
+
+Алгоритм:
+  1. Получить raw aggregate q(X) из инкапсулированного RawTelemetryStore
+  2. Взять sensitivity Δ₁(q) из typed metric catalog
+  3. Вычислить scale b = Δ₁ / ε
+  4. Сгенерировать η ~ Laplace(0, b) через numpy.random.laplace
+  5. Вернуть z̃ = q(X) + η (NoisyObservation)
+
+Свойство: механизм удовлетворяет ε-Differential Privacy для одного release.
+
+
+1.2 PRIVACY FILTER / ODOMETER (Budget Governance)
+-------------------------------------------------
+Из статьи: перед каждым adaptive query проверяется, что cumulative ε
+не превышает ε_tot.
+
+Реализация: dp_guard/privacy_accountant.py → PrivacyAccountant
+
+Алгоритм:
+  1. check_plan_budget(plan): сумма ε по plan ≤ ε_remaining
+  2. check_budget(ε): ε ≤ ε_remaining для каждого query
+  3. charge(query): ε_spent += ε после успешного DP release
+  4. При нарушении → PrivacyBudgetExceededError → safe fallback
+
+Упрощение в скелете: простое суммирование ε (без advanced/Rényi composition).
+
+
+1.3 DP CONFIDENCE SET (Robust Admissibility)
+--------------------------------------------
+Из статьи:
+
+    B_β(z̃) = { z : ||z - z̃|| ≤ t_β }
+
+Для Laplace noise с scale b:
+    P(|η| ≤ t) = 1 - exp(-t/b)
+    Two-sided confidence 1-β:  t_β = b · ln(2/β)
+
+Реализация: dp_guard/admissibility_verifier.py
+
+Алгоритм verify(â, observations):
+  1. Для каждого NoisyObservation построить CI [z̃ - t_β, z̃ + t_β]
+  2. Для permissive actions (allow_traffic, monitor_only):
+       - если upper_bound(threat_level) > threat_safety_threshold → BLOCK
+       - если upper_bound(anomaly_score) > anomaly_safety_threshold → BLOCK
+  3. Для restrictive actions (block_traffic, isolate_segment) → всегда ADMISSIBLE
+  4. При BLOCK → orchestrator выполняет safe_fallback
+
+
+1.4 ORCHESTRATION CONTROL LOOP
+------------------------------
+Из статьи (псевдокод, Section "DP-Guard Control Loop"):
+
+  1. LLM proposes (Plan, â)
+  2. Static checks: authorization + type-and-budget
+  3. Execute reads adaptively with privacy filter
+  4. Compute confidence set B_β(z̃)
+  5. Adm(â, z̃) verification
+  6. Execute â or safe fallback
+
+Реализация: dp_guard/orchestrator.py → Orchestrator.run_epoch()
+
+
+1.5 POST-PROCESSING INVARIANCE (теоретически)
+---------------------------------------------
+Из статьи: если transcript DP, то action = g(transcript) тоже DP.
+В скелете: action selection зависит только от DP releases, не от raw X.
+
+
+================================================================================
+2. ЧТО РЕАЛИЗОВАНО В СКЕЛЕТЕ v0.1
+================================================================================
+
+[✓] Telemetry Plane
+    - RawTelemetryStore с __raw_data (инкапсуляция)
+    - Typed metric catalog (threat_level, active_connections, anomaly_score)
+    - Laplace mechanism с Δ₁ sensitivity
+    - numpy для генерации шума
+
+[✓] Privacy Policy Plane
+    - PrivacyAccountant с ε_tot бюджетом
+    - Privacy filter (check_budget, check_plan_budget)
+    - PrivacyBudgetExceededError
+    - charge() после каждого release
+
+[✓] Verification Plane
+    - Laplace confidence intervals
+    - AdmissibilityVerifier с порогами безопасности
+    - Блокировка allow_traffic при превышении upper bound
+    - safe_fallback для заблокированных действий
+
+[✓] Orchestration Plane
+    - Orchestrator.run_epoch() — полный цикл
+    - MockLLMPlanner (детерминированные планы для демо)
+    - Логирование в stdout
+    - История эпох (EpochResult)
+
+[✓] Демонстрация (main.py)
+    - Dummy data: threat=45, connections=1200, anomaly=38
+    - 3 эпохи: DP reads, admissibility block, budget depletion
+    - Фиксированный random seed (42) для воспроизводимости
+
+[✓] Документация
+    - README.md
+    - DEMO_GUIDE.txt (инструкция для преподавателя)
+    - Этот файл (ALGORITHMS_AND_STATUS.txt)
+
+[✓] Типизация
+    - Strict type hints (Python 3.10+)
+    - dataclasses, Enum, Protocol
+    - Docstrings для всех public классов/методов
+
+
+================================================================================
+3. ЧТО НЕ РЕАЛИЗОВАНО (запланировано на следующие итерации)
+================================================================================
+
+[ ] OpenAI / реальный LLM API (сейчас MockLLMPlanner)
+[ ] Gaussian mechanism и (ε, δ)-DP
+[ ] Rényi DP / advanced composition для adaptive queries
+[ ] Typed policy language (DPolicy / LightDP-style type system)
+[ ] Role-based authorization (Π : Role → T)
+[ ] δ_tot учёт в privacy accountant
+[ ] DTMC-based probabilistic model checking (Section 16 статьи)
+[ ] Multi-epoch formal composition proofs
+[ ] Utility bounds (Lipschitz U, correctness threshold τ)
+[ ] REST/gRPC API, persistence, audit log
+[ ] Unit tests (pytest)
+[ ] CI/CD pipeline
+[ ] Integration с реальной 6G/O-RAN telemetry
+
+
+================================================================================
+4. КЛЮЧЕВЫЕ ПАРАМЕТРЫ ДЕМО
+================================================================================
+
+  ε_tot (total budget)     = 1.2
+  threat_safety_threshold  = 30.0
+  anomaly_safety_threshold = 40.0
+  β (risk tolerance)       = 0.05  → confidence = 95%
+
+  Raw telemetry (скрыто от LLM):
+    threat_level         = 45
+    active_connections   = 1200
+    anomaly_score        = 38
+
+  Sensitivities Δ₁:
+    threat_level         = 1.0
+    active_connections   = 5.0
+    anomaly_score        = 2.0
+
+
+================================================================================
+5. СООТВЕТСТВИЕ МОДУЛЕЙ СТАТЬЕ
+================================================================================
+
+  Статья (Section IV)          →  Python module
+  -------------------             ---------------
+  Telemetry plane              →  telemetry_plane.py
+  Policy plane (budget)        →  privacy_accountant.py
+  Verification plane           →  admissibility_verifier.py
+  Orchestration plane          →  orchestrator.py + mock_llm.py
+
+================================================================================
