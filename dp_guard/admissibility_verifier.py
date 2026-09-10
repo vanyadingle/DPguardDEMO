@@ -127,6 +127,8 @@ class AdmissibilityVerifier:
         if action in self.PERMISSIVE_ACTIONS:
             threat_bounds = intervals.get("threat_level")
             anomaly_bounds = intervals.get("anomaly_score")
+            auth_bounds = intervals.get("failed_auth_attempts")
+            loss_bounds = intervals.get("packet_loss_rate")
 
             if threat_bounds is not None:
                 _, threat_upper = threat_bounds
@@ -149,6 +151,30 @@ class AdmissibilityVerifier:
                         message=(
                             f"Blocked '{action}': anomaly upper bound {anomaly_upper:.2f} "
                             f"exceeds safety threshold {self.anomaly_safety_threshold:.2f}."
+                        ),
+                        confidence_intervals=intervals,
+                    )
+
+            if auth_bounds is not None:
+                _, auth_upper = auth_bounds
+                if auth_upper > 10.0:
+                    return VerificationResult(
+                        admissible=False,
+                        message=(
+                            f"Blocked '{action}': failed auth upper bound {auth_upper:.2f} "
+                            f"exceeds safety threshold 10.0."
+                        ),
+                        confidence_intervals=intervals,
+                    )
+
+            if loss_bounds is not None:
+                _, loss_upper = loss_bounds
+                if loss_upper > 2.0:
+                    return VerificationResult(
+                        admissible=False,
+                        message=(
+                            f"Blocked '{action}': packet loss upper bound {loss_upper:.2f}% "
+                            f"exceeds safety threshold 2.0%."
                         ),
                         confidence_intervals=intervals,
                     )

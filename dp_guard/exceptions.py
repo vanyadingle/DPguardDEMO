@@ -22,3 +22,11 @@ class PrivacyBudgetExceededError(Exception):
 
 class RawTelemetryAccessError(Exception):
     """Raised when raw telemetry is accessed outside the Telemetry Plane."""
+
+
+class PolicyViolationError(Exception):
+    """Raised when a plan or action violates the typed privacy policy."""
+
+
+class LLMPlannerError(Exception):
+    """Raised when the LLM planner fails to produce a valid plan."""

@@ -1,27 +1,28 @@
-"""Orchestration Plane — closed-loop event loop connecting all DP-Guard planes."""
+"""Orchestration Plane - closed-loop event loop connecting all DP-Guard planes."""
 
 from __future__ import annotations
 
-from typing import List, Optional, Protocol
+import logging
+from typing import List, Optional
 
+from dp_guard.action_executor import ActionExecutor
 from dp_guard.admissibility_verifier import AdmissibilityVerifier
-from dp_guard.exceptions import PrivacyBudgetExceededError
+from dp_guard.audit_log import AuditLog
+from dp_guard.exceptions import PolicyViolationError, PrivacyBudgetExceededError
+from dp_guard.llm_factory import LLMPlanner
+from dp_guard.network_telemetry import NetworkTelemetrySource
 from dp_guard.privacy_accountant import PrivacyAccountant
+from dp_guard.privacy_policy import PrivacyPolicy
 from dp_guard.telemetry_plane import TelemetryPlane
 from dp_guard.types import (
     EpochResult,
+    NetworkContext,
     NoisyObservation,
     OrchestrationPlan,
     ProposedAction,
 )
 
-
-class LLMPlanner(Protocol):
-    """Protocol for LLM or mock plan generators."""
-
-    def propose(self, intent: str, epoch_index: int) -> tuple[OrchestrationPlan, ProposedAction]:
-        """Return a metric-read plan and proposed action."""
-        ...
+logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
@@ -30,41 +31,59 @@ class Orchestrator:
 
     The orchestrator never accesses raw telemetry. It:
       1. Receives an operator intent.
-      2. Obtains an LLM plan + proposed action.
-      3. Executes DP metric reads via Telemetry Plane (with Privacy Accountant).
-      4. Verifies admissibility under DP uncertainty.
-      5. Executes the action or triggers safe fallback.
+      2. Prompts LLM with sanitized context to generate Plan + Proposed Action.
+      3. Validates typed policy and privacy budget.
+      4. Executes DP metric reads via Telemetry Plane.
+      5. Verifies admissibility under DP uncertainty.
+      6. Executes action or safe fallback via ActionExecutor.
+      7. Records audit transcript.
     """
 
-    SAFE_FALLBACK = ProposedAction(action_type="safe_fallback", parameters={"mode": "deny-by-default"})
+    SAFE_FALLBACK = ProposedAction(
+        action_type="safe_fallback",
+        parameters={"mode": "deny-by-default"},
+    )
 
     def __init__(
         self,
         telemetry_plane: TelemetryPlane,
+        telemetry_source: NetworkTelemetrySource,
         privacy_accountant: PrivacyAccountant,
         verifier: AdmissibilityVerifier,
+        policy: PrivacyPolicy,
         llm_planner: LLMPlanner,
+        action_executor: ActionExecutor,
+        audit_log: AuditLog,
+        llm_provider: str = "mock",
     ) -> None:
-        """
-        Wire all four architectural planes.
-
-        Args:
-            telemetry_plane: DP-only metric interface.
-            privacy_accountant: Privacy filter / budget tracker.
-            verifier: Admissibility checker under DP uncertainty.
-            llm_planner: Proposal generator (mock or real LLM).
-        """
+        """Wire all architectural planes."""
         self._telemetry = telemetry_plane
+        self._telemetry_source = telemetry_source
         self._accountant = privacy_accountant
         self._verifier = verifier
+        self._policy = policy
         self._llm = llm_planner
+        self._executor = action_executor
+        self._audit = audit_log
+        self._llm_provider = llm_provider
         self._epoch_index = 0
         self._history: List[EpochResult] = []
+        self._prior_observations: List[dict[str, float]] = []
 
     @property
     def history(self) -> List[EpochResult]:
         """Return completed epoch results."""
         return list(self._history)
+
+    def _build_context(self) -> NetworkContext:
+        """Build sanitized network context for LLM prompting."""
+        return NetworkContext(
+            gnb_id=self._telemetry_source.gnb_id,
+            region=self._telemetry_source.region,
+            slices=self._telemetry_source.slices,
+            epoch_index=self._epoch_index,
+            remaining_epsilon=self._accountant.epsilon_remaining,
+        )
 
     def run_epoch(self, intent: str) -> EpochResult:
         """
@@ -76,34 +95,61 @@ class Orchestrator:
         Returns:
             EpochResult summarizing plan execution, verification, and action.
         """
-        plan, proposed_action = self._llm.propose(intent, self._epoch_index)
+        self._telemetry.refresh_raw_aggregates()
+        context = self._build_context()
+
+        plan, proposed_action = self._llm.propose(
+            intent=intent,
+            epoch_index=self._epoch_index,
+            context=context,
+            prior_observations=self._prior_observations,
+        )
+
         observations: List[NoisyObservation] = []
         budget_exhausted = False
         verification_message = ""
         admissible = False
         executed_action = self.SAFE_FALLBACK
+        execution_result = None
 
         print(f"\n{'=' * 60}")
         print(f"EPOCH {self._epoch_index + 1} | Intent: {intent}")
+        print(f"LLM provider: {self._llm_provider}")
         print(f"{'=' * 60}")
         print(f"LLM Plan ({len(plan.queries)} queries): {plan.reasoning}")
         print(f"Proposed action: {proposed_action.action_type}")
 
-        # Static type-and-budget check before execution
+        # Static policy validation
+        try:
+            self._policy.validate_plan(plan)
+            self._policy.validate_action(proposed_action)
+        except PolicyViolationError as exc:
+            verification_message = f"Policy violation: {exc}"
+            print(f"[POLICY] {verification_message}")
+            result = self._finalize_and_log(
+                intent, plan, proposed_action, observations,
+                self.SAFE_FALLBACK, None, False, verification_message, False,
+            )
+            self._telemetry_source.advance_epoch()
+            self._epoch_index += 1
+            return result
+
+        # Type-and-budget check
         try:
             self._accountant.check_plan_budget(plan)
         except PrivacyBudgetExceededError as exc:
             budget_exhausted = True
             verification_message = f"Plan rejected at budget gate: {exc}"
             print(f"[PRIVACY] {verification_message}")
-            result = self._finalize_epoch(
+            result = self._finalize_and_log(
                 intent, plan, proposed_action, observations,
-                executed_action, False, verification_message, budget_exhausted,
+                self.SAFE_FALLBACK, None, False, verification_message, budget_exhausted,
             )
+            self._telemetry_source.advance_epoch()
             self._epoch_index += 1
             return result
 
-        # Adaptive execution of metric reads
+        # Adaptive DP metric reads
         for query in plan.queries:
             try:
                 self._accountant.check_budget(query.epsilon)
@@ -111,23 +157,26 @@ class Orchestrator:
                 budget_exhausted = True
                 verification_message = f"Budget exhausted mid-plan: {exc}"
                 print(f"[PRIVACY] {verification_message}")
-                executed_action = self.SAFE_FALLBACK
-                result = self._finalize_epoch(
+                result = self._finalize_and_log(
                     intent, plan, proposed_action, observations,
-                    executed_action, False, verification_message, budget_exhausted,
+                    self.SAFE_FALLBACK, None, False, verification_message, budget_exhausted,
                 )
+                self._telemetry_source.advance_epoch()
                 self._epoch_index += 1
                 return result
 
             obs = self._telemetry.release_metric(query.metric_type, query.epsilon)
             self._accountant.charge(query)
             observations.append(obs)
+            self._prior_observations.append(
+                {obs.metric_type.value: obs.noisy_value}
+            )
             print(
                 f"  [DP-READ] {query.metric_type.value}: "
                 f"z_noisy={obs.noisy_value:.2f} (eps={query.epsilon}, b={obs.scale:.2f})"
             )
 
-        # Admissibility verification under DP uncertainty
+        # Admissibility verification
         verification = self._verifier.verify(proposed_action, observations)
         admissible = verification.admissible
         verification_message = verification.message
@@ -135,13 +184,13 @@ class Orchestrator:
         if admissible:
             executed_action = proposed_action
             print(f"[VERIFY] ADMISSIBLE - {verification_message}")
+            execution_result = self._executor.execute(executed_action)
+            print(f"[ACTION] Executed: {execution_result.message}")
         else:
             executed_action = self.SAFE_FALLBACK
             print(f"[VERIFY] BLOCKED - {verification_message}")
-            print(f"[ACTION] Safe fallback executed: {executed_action.action_type}")
-
-        if admissible:
-            print(f"[ACTION] Executed: {executed_action.action_type}")
+            execution_result = self._executor.execute(executed_action)
+            print(f"[ACTION] Safe fallback: {execution_result.message}")
 
         for metric, (lo, hi) in verification.confidence_intervals.items():
             print(f"  CI({metric}): [{lo:.2f}, {hi:.2f}] @ confidence 1-beta")
@@ -153,25 +202,29 @@ class Orchestrator:
             f"(remaining={state.epsilon_remaining:.2f})"
         )
 
-        result = self._finalize_epoch(
+        result = self._finalize_and_log(
             intent, plan, proposed_action, observations,
-            executed_action, admissible, verification_message, budget_exhausted,
+            executed_action, execution_result, admissible,
+            verification_message, budget_exhausted,
         )
+
+        self._telemetry_source.advance_epoch()
         self._epoch_index += 1
         return result
 
-    def _finalize_epoch(
+    def _finalize_and_log(
         self,
         intent: str,
         plan: OrchestrationPlan,
         proposed_action: ProposedAction,
         observations: List[NoisyObservation],
         executed_action: ProposedAction,
+        execution_result: Optional[object],
         admissible: bool,
         verification_message: str,
         budget_exhausted: bool,
     ) -> EpochResult:
-        """Record epoch outcome and return result object."""
+        """Build epoch result, append to history, write audit log."""
         state = self._accountant.get_state()
         result = EpochResult(
             intent=intent,
@@ -179,10 +232,13 @@ class Orchestrator:
             proposed_action=proposed_action,
             observations=observations,
             executed_action=executed_action,
+            execution_result=execution_result,  # type: ignore[arg-type]
             admissible=admissible,
             verification_message=verification_message,
             remaining_epsilon=state.epsilon_remaining,
             budget_exhausted=budget_exhausted,
+            llm_provider=self._llm_provider,
         )
         self._history.append(result)
+        self._audit.record_epoch(result)
         return result

@@ -1,0 +1,27 @@
+{
+  "slices": [
+    {
+      "id": "eMBB-1",
+      "type": "eMBB",
+      "description": "Enhanced Mobile Broadband - consumer data",
+      "capacity_ue": 5000,
+      "sla_latency_ms": 50
+    },
+    {
+      "id": "URLLC-1",
+      "type": "URLLC",
+      "description": "Ultra-Reliable Low-Latency - industrial control",
+      "capacity_ue": 500,
+      "sla_latency_ms": 1
+    },
+    {
+      "id": "mMTC-1",
+      "type": "mMTC",
+      "description": "Massive Machine Type Communications - IoT sensors",
+      "capacity_ue": 50000,
+      "sla_latency_ms": 1000
+    }
+  ],
+  "gNB_id": "gNB-DPGuard-001",
+  "region": "EU-North-1"
+}

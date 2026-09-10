@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 
 class MetricType(str, Enum):
@@ -13,6 +13,17 @@ class MetricType(str, Enum):
     THREAT_LEVEL = "threat_level"
     ACTIVE_CONNECTIONS = "active_connections"
     ANOMALY_SCORE = "anomaly_score"
+    FAILED_AUTH_ATTEMPTS = "failed_auth_attempts"
+    SLICE_LOAD_PERCENT = "slice_load_percent"
+    PACKET_LOSS_RATE = "packet_loss_rate"
+
+
+class OperatorRole(str, Enum):
+    """Typed access-control roles for the policy plane."""
+
+    SECURITY_OPERATOR = "security_operator"
+    NETWORK_ADMIN = "network_admin"
+    READONLY_AUDITOR = "readonly_auditor"
 
 
 @dataclass(frozen=True)
@@ -22,13 +33,19 @@ class MetricDefinition:
 
     Attributes:
         metric_type: Catalog identifier for the metric.
-        sensitivity: Global L1 sensitivity Δ₁(q) for the aggregation query.
+        sensitivity: Global L1 sensitivity Delta1(q) for the aggregation query.
         description: Human-readable description of the metric semantics.
+        min_epsilon: Minimum allowed per-release epsilon for this metric.
+        max_epsilon: Maximum allowed per-release epsilon for this metric.
+        authorized_roles: Roles permitted to request this metric type.
     """
 
     metric_type: MetricType
     sensitivity: float
     description: str
+    min_epsilon: float = 0.05
+    max_epsilon: float = 1.0
+    authorized_roles: frozenset[OperatorRole] = frozenset({OperatorRole.SECURITY_OPERATOR})
 
 
 @dataclass(frozen=True)
@@ -38,7 +55,7 @@ class MetricQuery:
 
     Attributes:
         metric_type: Which typed metric to release.
-        epsilon: Per-release privacy cost ε for the Laplace mechanism.
+        epsilon: Per-release privacy cost epsilon for the Laplace mechanism.
     """
 
     metric_type: MetricType
@@ -65,6 +82,7 @@ ActionType = Literal[
     "isolate_segment",
     "safe_fallback",
     "monitor_only",
+    "rate_limit_slice",
 ]
 
 
@@ -92,7 +110,7 @@ class NoisyObservation:
         noisy_value: Noisy aggregate returned to the orchestrator.
         epsilon: Privacy cost charged for this release.
         sensitivity: L1 sensitivity used for noise calibration.
-        scale: Laplace scale b = Δ₁(q) / ε.
+        scale: Laplace scale b = Delta1(q) / epsilon.
     """
 
     metric_type: MetricType
@@ -100,6 +118,59 @@ class NoisyObservation:
     epsilon: float
     sensitivity: float
     scale: float
+
+
+@dataclass(frozen=True)
+class UESessionRecord:
+    """Single UE session record from raw network telemetry."""
+
+    ue_id: str
+    slice: str
+    threat_score: float
+    anomaly_flag: int
+    bytes_tx: float
+    auth_failures: int
+
+
+@dataclass(frozen=True)
+class NetworkSlice:
+    """Network slice definition from topology catalog."""
+
+    id: str
+    type: str
+    description: str
+    capacity_ue: int
+    sla_latency_ms: int
+
+
+@dataclass
+class NetworkContext:
+    """
+    Sanitized network context passed to the LLM (no raw subscriber data).
+
+    Attributes:
+        gnb_id: Base station identifier.
+        region: Deployment region.
+        slices: Available network slices (topology only).
+        epoch_index: Current orchestration epoch number.
+        remaining_epsilon: Privacy budget still available.
+    """
+
+    gnb_id: str
+    region: str
+    slices: List[NetworkSlice]
+    epoch_index: int
+    remaining_epsilon: float
+
+
+@dataclass
+class ActionExecutionResult:
+    """Outcome of executing a control action on the network actuator plane."""
+
+    action: ProposedAction
+    success: bool
+    message: str
+    side_effects: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -111,7 +182,9 @@ class EpochResult:
     proposed_action: ProposedAction
     observations: List[NoisyObservation]
     executed_action: ProposedAction
+    execution_result: Optional[ActionExecutionResult]
     admissible: bool
     verification_message: str
     remaining_epsilon: float
     budget_exhausted: bool = False
+    llm_provider: str = "mock"

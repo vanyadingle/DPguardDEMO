@@ -1,194 +1,151 @@
 ================================================================================
-  DP-GUARD — ПОДРОБНАЯ ИНСТРУКЦИЯ ДЛЯ ДЕМОНСТРАЦИИ ПРЕПОДАВАТЕЛЮ
+  DP-GUARD FULL v1.0 — ПОДРОБНАЯ ИНСТРУКЦИЯ ДЛЯ ДЕМОНСТРАЦИИ ПРЕПОДАВАТЕЛЮ
 ================================================================================
 
-Автор: [Ваше ФИО]
-Проект: DP-Guard Prototype (скелет)
+Проект: DP-Guard Full Prototype
 Путь:   C:\Users\IVAN\Projects\DP_Guard
-
-Этот файл описывает ПОШАГОВО, что открыть, куда нажать и что вводить,
-чтобы показать работающий прототип архитектуры из статьи DP-Guard.
+Версия: 1.0.0 (полная версия с реальной телеметрией и OpenAI LLM)
 
 
 --------------------------------------------------------------------------------
-ЧАСТЬ 1. ПОДГОТОВКА (один раз, ~3 минуты)
+ЧАСТЬ 1. ПОДГОТОВКА
 --------------------------------------------------------------------------------
 
-ШАГ 1.1 — Открыть терминал в Cursor / VS Code / PowerShell
-  • Нажмите: Win + R
-  • Введите: powershell
-  • Нажмите: Enter
+ШАГ 1.1 — Открыть терминал
+  Win + R -> powershell -> Enter
 
-ШАГ 1.2 — Перейти в папку проекта
-  • В терминале введите команду (скопируйте целиком):
+ШАГ 1.2 — Перейти в проект
+  cd C:\Users\IVAN\Projects\DP_Guard
 
-    cd C:\Users\IVAN\Projects\DP_Guard
+ШАГ 1.3 — Виртуальное окружение (если ещё не создано)
+  python -m venv .venv
+  .\.venv\Scripts\Activate.ps1
+  pip install -r requirements.txt
 
-  • Нажмите: Enter
+ШАГ 1.4 — (Опционально) Настроить OpenAI для РЕАЛЬНОГО LLM
+  copy .env.example .env
+  notepad .env
+  Вставить: OPENAI_API_KEY=sk-ваш-ключ
+  Сохранить.
 
-ШАГ 1.3 — Создать виртуальное окружение Python
-  • Введите:
-
-    python -m venv .venv
-
-  • Нажмите: Enter
-  • Дождитесь завершения (появится новая строка приглашения)
-
-ШАГ 1.4 — Активировать виртуальное окружение
-  • Введите:
-
-    .\.venv\Scripts\Activate.ps1
-
-  • Нажмите: Enter
-  • В начале строки должно появиться: (.venv)
-
-  ЕСЛИ ОШИБКА "execution of scripts is disabled":
-    • Введите (один раз):
-      Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-    • Нажмите: Y (Yes)
-    • Повторите активацию: .\.venv\Scripts\Activate.ps1
-
-ШАГ 1.5 — Установить зависимости
-  • Введите:
-
-    pip install -r requirements.txt
-
-  • Нажмите: Enter
-  • Дождитесь: Successfully installed numpy ...
+  БЕЗ ключа — работает mock LLM (offline), демо всё равно полное.
 
 
 --------------------------------------------------------------------------------
-ЧАСТЬ 2. ЗАПУСК ДЕМОНСТРАЦИИ
+ЧАСТЬ 2. ЗАПУСК
 --------------------------------------------------------------------------------
 
-ШАГ 2.1 — Запустить main.py
-  • Убедитесь, что вы в папке DP_Guard и активировано (.venv)
-  • Введите:
+ШАГ 2.1 — Запустить демо
+  python main.py
 
-    python main.py
-
-  • Нажмите: Enter
-
-ШАГ 2.2 — Что должно появиться на экране
-  Программа выполнит 3 эпохи (epochs) orchestration loop.
-  Для каждой эпохи вы увидите блок:
-
-  ============================================================
-  EPOCH N | Intent: ...
-  ============================================================
-
-  Обратите внимание преподавателю на ключевые строки:
-
-  [DP-READ] threat_level: z̃=... (ε=..., b=...)
-    → Это зашумлённое значение метрики (Laplace mechanism).
-    → LLM и orchestrator видят ТОЛЬКО z̃, не raw=45.
-
-  [VERIFY] BLOCKED — Blocked 'allow_traffic': threat upper bound ...
-    → Verification Plane заблокировал опасное действие LLM.
-
-  [VERIFY] ADMISSIBLE — ...
-    → Действие прошло проверку (для restrictive actions).
-
-  [PRIVACY] Budget exhausted ...
-    → Privacy Accountant не пустил запрос — бюджет исчерпан.
-
-  [BUDGET] Spent ε=... / ε_tot=1.20 (remaining=...)
-    → Текущее состояние privacy budget.
-
-  В конце — таблица DEMO SUMMARY с итогами по эпохам.
+ШАГ 2.2 — Запустить тесты (показать что код проверен)
+  pytest tests/ -v
 
 
 --------------------------------------------------------------------------------
-ЧАСТЬ 3. ЧТО ГОВОРИТЬ ПРЕПОДАВАТЕЛЮ (краткий сценарий ~5 мин)
+ЧАСТЬ 3. ЧТО ПОКАЗЫВАТЬ В ВЫВОДЕ main.py
 --------------------------------------------------------------------------------
 
-1. ПРОБЛЕМА
-   "В zero-touch 6G LLM-оркестратор не должен видеть сырую телеметрию
-    абонентов. DP-Guard решает это через typed DP interface."
+При старте видно:
+  - gNodeB ID и region (из data/network_slices.json)
+  - 8 UE-сессий на slice eMBB-1
+  - Raw aggregates (ПОМЕТИТЬ: LLM их НЕ видит!)
+    threat_level: 71.00  <- высокая угроза
+    active_connections: 8.00
+    ...
 
-2. ПОКАЗАТЬ ФАЙЛ telemetry_plane.py
-   • В Cursor: File → Open Folder → C:\Users\IVAN\Projects\DP_Guard
-   • Откройте: dp_guard\telemetry_plane.py
-   • Покажите класс RawTelemetryStore с __raw_data (инкапсуляция)
-   • Покажите метод release_metric: M(X) = q(X) + Laplace(Δ/ε)
+ЭПОХА 1:
+  [DP-READ] threat_level: z_noisy=...  <- зашумлённое значение
+  [VERIFY] BLOCKED - allow_traffic заблокирован
+  [ACTION] Safe fallback
 
-3. ПОКАЗАТЬ privacy_accountant.py
-   • Откройте: dp_guard\privacy_accountant.py
-   • Объясните: check_budget() — privacy filter перед каждым запросом
-   • PrivacyBudgetExceededError при превышении ε_tot
+ЭПОХА 2:
+  Ещё DP-чтения (failed_auth_attempts, packet_loss_rate)
+  Снова BLOCKED для allow_traffic
 
-4. ПОКАЗАТЬ admissibility_verifier.py
-   • Откройте: dp_guard\admissibility_verifier.py
-   • Объясните: confidence interval B_β(z̃) для Laplace noise
-   • allow_traffic блокируется, если upper bound threat > 30
+ЭПОХА 3:
+  LLM предлагает block_traffic
+  [VERIFY] ADMISSIBLE - restrictive action
+  [ACTION] Executed: Blocked anomalous sessions
 
-5. ПОКАЗАТЬ orchestrator.py
-   • Откройте: dp_guard\orchestrator.py
-   • Покажите run_epoch(): plan → budget check → DP reads → verify → act
-
-6. ЗАПУСТИТЬ python main.py (если ещё не запущено)
-   • Эпоха 2: LLM предлагает allow_traffic, но verifier блокирует
-     (истинный threat=45 скрыт, но верхняя граница CI > порога)
-   • Эпоха 3: budget exhausted — privacy filter срабатывает
-
-7. ЧТО ЕЩЁ НЕ РЕАЛИЗОВАНО
-   "Это скелет: mock LLM, нет OpenAI API, нет (ε,δ)-Gaussian,
-    Rényi composition, typed policy DSL — запланировано в следующих итерациях."
+DEMO SUMMARY — итоговая таблица
+Audit log: logs/audit.jsonl
 
 
 --------------------------------------------------------------------------------
-ЧАСТЬ 4. ПОКАЗ СТРУКТУРЫ В IDE (опционально)
+ЧАСТЬ 4. ПОКАЗ ФАЙЛОВ В IDE (порядок для преподавателя)
 --------------------------------------------------------------------------------
 
-ШАГ 4.1 — Открыть проект в Cursor
-  • File → Open Folder
-  • Выберите: C:\Users\IVAN\Projects\DP_Guard
-  • Нажмите: Select Folder
+1. data/ue_sessions.json
+   "Вот реальные структурированные записи UE-сессий 6G-сети.
+    Каждая запись: ue_id, slice, threat_score, auth_failures и т.д."
 
-ШАГ 4.2 — Показать дерево файлов (Explorer)
-  • Слева панель Explorer (Ctrl+Shift+E)
-  • Разверните папку dp_guard
-  • Покажите 4 ключевых модуля + main.py
+2. dp_guard/network_telemetry.py
+   "Агрегирует raw records в KPI: max threat, count sessions, anomaly %."
 
-ШАГ 4.2 — Открыть README.md
-  • Двойной клик на README.md
-  • Кратко прочитайте таблицу архитектуры
+3. dp_guard/telemetry_plane.py
+   "Единственный доступ к raw data. Добавляет Laplace noise."
 
+4. dp_guard/openai_planner.py
+   "Реальный LLM через OpenAI. Получает только intent и schema, не raw data."
 
---------------------------------------------------------------------------------
-ЧАСТЬ 5. ПРОВЕРКА РАБОТОСПОСОБНОСТИ (чеклист)
---------------------------------------------------------------------------------
+5. dp_guard/privacy_policy.py
+   "Typed policy: какие метрики и действия разрешены для роли."
 
-  [ ] python main.py завершается без ошибок (exit code 0)
-  [ ] Видны строки [DP-READ] с зашумлёнными значениями
-  [ ] В эпохе 2 есть [VERIFY] BLOCKED для allow_traffic
-  [ ] В эпохе 3 есть [PRIVACY] Budget exhausted
-  [ ] DEMO SUMMARY показывает ε_remaining близко к 0 после эпох 2-3
+6. dp_guard/admissibility_verifier.py
+   "Проверяет безопасность действий с учётом DP-шума."
 
+7. dp_guard/orchestrator.py
+   "Главный цикл: intent -> LLM -> budget -> DP reads -> verify -> execute."
 
---------------------------------------------------------------------------------
-ЧАСТЬ 6. УСТРАНЕНИЕ НЕПОЛАДОК
---------------------------------------------------------------------------------
-
-Ошибка: "python is not recognized"
-  → Установите Python 3.10+ с python.org, отметьте "Add to PATH"
-
-Ошибка: "No module named numpy"
-  → pip install -r requirements.txt (в активированном .venv)
-
-Ошибка: эпоха 2 показывает ADMISSIBLE вместо BLOCKED
-  → Это возможно из-за случайного шума (редко при seed=42)
-  → Перезапустите: python main.py (seed фиксирован в main.py)
-
-Ошибка: кодировка символов z̃ в консоли Windows
-  → Не критично для демо; можно сказать "z-tilde — noisy DP value"
+8. logs/audit.jsonl
+   "Полный аудит каждой эпохи для compliance."
 
 
 --------------------------------------------------------------------------------
-КОНТАКТЫ / ДОПОЛНИТЕЛЬНО
+ЧАСТЬ 5. РЕЖИМ С OPENAI (если есть ключ)
 --------------------------------------------------------------------------------
 
-Подробное описание алгоритмов: см. файл ALGORITHMS_AND_STATUS.txt
-Исходная статья: DP-Guard PDF в Downloads
+1. Настроить .env с OPENAI_API_KEY
+2. python main.py
+3. В выводе будет: LLM provider: gpt-4o-mini (не mock)
+4. План и действия генерирует реальная модель
+5. Объяснить: "LLM адаптивно выбирает метрики, но verifier и budget
+   всё равно контролируют безопасность."
+
+
+--------------------------------------------------------------------------------
+ЧАСТЬ 6. ГОТОВЫЙ ТЕКСТ ДЛЯ ЗАЩИТЫ (~2 мин)
+--------------------------------------------------------------------------------
+
+"Реализована полная версия DP-Guard — архитектуры LLM-оркестрации
+ безопасности 6G-сетей с формальными гарантиями дифференциальной приватности.
+
+ Система загружает реальные структурированные записи UE-сессий из JSON,
+ агрегирует их в KPI и отдаёт LLM только DP-защищённые значения.
+
+ Архитектура: 4 плоскости — Telemetry, Privacy Policy, Verification,
+ Orchestration — плюс Action Executor и Audit Log.
+
+ LLM реализован через OpenAI API с JSON schema output; без ключа работает
+ mock-режим для offline демонстрации.
+
+ В demo три эпохи: две блокировки allow_traffic verifier'ом из-за высокой
+ угрозы (71 > порог 30), и финальное выполнение block_traffic.
+
+ Все транскрипты записываются в logs/audit.jsonl.
+ Unit-тесты покрывают DP mechanism, budget, policy и verifier."
+
+
+--------------------------------------------------------------------------------
+ЧАСТЬ 7. ЧЕКЛИСТ ПЕРЕД ПОКАЗОМ
+--------------------------------------------------------------------------------
+
+  [ ] pytest tests/ -v — все тесты зелёные
+  [ ] python main.py — 3 эпохи без ошибок
+  [ ] Эпоха 1-2: [VERIFY] BLOCKED
+  [ ] Эпоха 3: [ACTION] Executed block_traffic
+  [ ] logs/audit.jsonl создан и содержит 3 записи
+  [ ] data/ue_sessions.json открывается в IDE
 
 ================================================================================
