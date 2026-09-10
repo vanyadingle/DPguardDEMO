@@ -1,9 +1,5 @@
 # DP-Guard
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests: 6 passed](https://img.shields.io/badge/Tests-6%20passed-brightgreen.svg)](tests/)
-
 Архитектура и прототип системы безопасной LLM-оркестрации в AI-native zero-touch 6G сетях с типизированным контролем доступа, дифференциальной приватностью (Differential Privacy) и математической верификацией допустимости действий.
 
 ---
@@ -227,10 +223,4 @@ DP_Guard/
     ├── telemetry_plane.py      # DP-плоскость телеметрии (шум Лапласа)
     └── types.py                # Типы данных, dataclasses и перечисления
 ```
-
----
-
-## Лицензия
-
-Проект распространяется под лицензией [MIT](LICENSE).
 
