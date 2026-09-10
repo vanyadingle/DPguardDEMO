@@ -12,3 +12,6 @@ EXPLANATION_AND_TERMS.md
 CHEATSHEET_AND_DEFINITIONS.txt
 *.docx
 create_word_doc.py
+WHITE_PAPER.md
+DP_Guard_White_Paper.docx
+create_whitepaper_doc.py
