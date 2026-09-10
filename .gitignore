@@ -6,3 +6,5 @@ __pycache__/
 .pytest_cache/
 PRESENTATION_SLIDES.md
 PROSTYM_YAZYKOM.txt
+*.pptx
+create_presentation.py
