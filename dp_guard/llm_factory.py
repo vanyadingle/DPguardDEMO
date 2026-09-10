@@ -36,10 +36,39 @@ def create_llm_planner(config: DPGuardConfig, policy: PrivacyPolicy) -> tuple[LL
     Returns:
         Tuple of (planner instance, provider name string).
     """
-    if config.use_mock_llm:
-        return MockLLMPlanner(), "mock"
+    if config.llm_provider == "gemini" and config.gemini_api_key:
+        return (
+            OpenAIPlanner(
+                api_key=config.gemini_api_key,
+                model=config.gemini_model,
+                policy=policy,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            ),
+            f"gemini:{config.gemini_model}",
+        )
 
-    if config.openai_api_key:
+    if config.llm_provider == "openai" and config.openai_api_key:
+        return (
+            OpenAIPlanner(
+                api_key=config.openai_api_key,
+                model=config.openai_model,
+                policy=policy,
+            ),
+            f"openai:{config.openai_model}",
+        )
+
+    if config.gemini_api_key and not config.use_mock_llm:
+        return (
+            OpenAIPlanner(
+                api_key=config.gemini_api_key,
+                model=config.gemini_model,
+                policy=policy,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            ),
+            f"gemini:{config.gemini_model}",
+        )
+
+    if config.openai_api_key and not config.use_mock_llm:
         return (
             OpenAIPlanner(
                 api_key=config.openai_api_key,

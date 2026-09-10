@@ -79,7 +79,7 @@ def print_banner(config: DPGuardConfig, orchestrator: Orchestrator) -> None:
     print("=" * 60)
     print(f"gNodeB: {source.gnb_id} | Region: {source.region}")
     print(f"Target slice: eMBB-1 | UE sessions: {int(metrics['active_connections'])}")
-    print(f"LLM provider: {config.use_mock_llm and 'mock (offline)' or config.openai_model}")
+    print(f"LLM provider: {orchestrator._llm_provider}")
     print(f"Privacy budget eps_tot: {config.epsilon_total}")
     print(f"Role: {config.operator_role.value}")
     print()

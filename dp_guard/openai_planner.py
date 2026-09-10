@@ -53,18 +53,21 @@ class OpenAIPlanner:
         api_key: str,
         model: str,
         policy: PrivacyPolicy,
+        base_url: str | None = None,
     ) -> None:
         """
-        Initialize the OpenAI planner.
+        Initialize the LLM planner.
 
         Args:
-            api_key: OpenAI API key.
-            model: Model identifier (e.g. gpt-4o-mini).
+            api_key: API key.
+            model: Model identifier (e.g. gpt-4o-mini or gemini-2.0-flash).
             policy: Typed privacy policy for schema context.
+            base_url: Optional base URL for OpenAI-compatible providers (e.g. Google Gemini).
         """
         self._api_key = api_key
         self._model = model
         self._policy = policy
+        self._base_url = base_url
         self._client: Any = None
 
     def _get_client(self) -> Any:
@@ -76,7 +79,10 @@ class OpenAIPlanner:
                 raise LLMPlannerError(
                     "openai package not installed. Run: pip install openai"
                 ) from exc
-            self._client = OpenAI(api_key=self._api_key)
+            if self._base_url:
+                self._client = OpenAI(api_key=self._api_key, base_url=self._base_url)
+            else:
+                self._client = OpenAI(api_key=self._api_key)
         return self._client
 
     @staticmethod

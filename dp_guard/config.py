@@ -36,6 +36,9 @@ class DPGuardConfig:
     project_root: Path
     openai_api_key: str | None
     openai_model: str
+    gemini_api_key: str | None
+    gemini_model: str
+    llm_provider: str
     epsilon_total: float
     threat_safety_threshold: float
     anomaly_safety_threshold: float
@@ -58,14 +61,29 @@ class DPGuardConfig:
             Populated DPGuardConfig instance.
         """
         root = project_root or Path(__file__).resolve().parent.parent
-        api_key = os.getenv("OPENAI_API_KEY") or None
+        openai_key = os.getenv("OPENAI_API_KEY") or None
+        gemini_key = os.getenv("GEMINI_API_KEY") or None
+        explicit_provider = os.getenv("LLM_PROVIDER")
+
+        if explicit_provider:
+            provider = explicit_provider.lower()
+        elif gemini_key:
+            provider = "gemini"
+        elif openai_key:
+            provider = "openai"
+        else:
+            provider = "mock"
+
         role_raw = _env_str("DP_GUARD_ROLE", "security_operator")
         role = OperatorRole(role_raw)
 
         return cls(
             project_root=root,
-            openai_api_key=api_key,
+            openai_api_key=openai_key,
             openai_model=_env_str("OPENAI_MODEL", "gpt-4o-mini"),
+            gemini_api_key=gemini_key,
+            gemini_model=_env_str("GEMINI_MODEL", "gemini-2.0-flash"),
+            llm_provider=provider,
             epsilon_total=_env_float("DP_EPSILON_TOTAL", 2.0),
             threat_safety_threshold=_env_float("THREAT_SAFETY_THRESHOLD", 30.0),
             anomaly_safety_threshold=_env_float("ANOMALY_SAFETY_THRESHOLD", 40.0),
@@ -74,5 +92,5 @@ class DPGuardConfig:
             telemetry_path=root / "data" / "ue_sessions.json",
             topology_path=root / "data" / "network_slices.json",
             audit_log_path=root / "logs" / "audit.jsonl",
-            use_mock_llm=api_key is None,
+            use_mock_llm=(provider == "mock"),
         )
