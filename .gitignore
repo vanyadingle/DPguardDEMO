@@ -10,3 +10,5 @@ PROSTYM_YAZYKOM.txt
 create_presentation.py
 EXPLANATION_AND_TERMS.md
 CHEATSHEET_AND_DEFINITIONS.txt
+*.docx
+create_word_doc.py
