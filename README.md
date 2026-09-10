@@ -2,7 +2,7 @@
 
 **Typed Differential Privacy for Verified LLM-Orchestrated Security in Zero-Touch 6G Networks**
 
-Полная рабочая версия архитектуры DP-Guard: реальная структурированная телеметрия UE-сессий, OpenAI LLM (с fallback на mock), typed policy, audit log и closed-loop orchestration.
+Полная рабочая версия архитектуры DP-Guard: реальная структурированная телеметрия UE-сессий, поддержка Google Gemini и OpenAI LLM (с fallback на mock), typed policy, audit log и closed-loop orchestration.
 
 ## Архитектура (4 плоскости + вспомогательные модули)
 
@@ -14,7 +14,7 @@
 | `privacy_accountant.py` | Privacy Policy | Privacy filter, контроль epsilon-бюджета |
 | `admissibility_verifier.py` | Verification | CI под Laplace-шум, блокировка действий |
 | `orchestrator.py` | Orchestration | Closed-loop: intent -> LLM -> DP -> verify -> act |
-| `openai_planner.py` | Orchestration | Реальный LLM через OpenAI API |
+| `openai_planner.py` | Orchestration | Реальный LLM через Gemini / OpenAI API |
 | `action_executor.py` | Actuator | Выполнение команд на симулированной сети |
 | `audit_log.py` | Compliance | JSONL аудит всех эпох |
 
@@ -28,11 +28,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### С OpenAI (реальный LLM)
+### С реальной нейросетью (Gemini / OpenAI)
 
 ```powershell
 copy .env.example .env
-# Отредактируй .env: вставь OPENAI_API_KEY=sk-...
+# Отредактируй .env: вставь GEMINI_API_KEY или OPENAI_API_KEY
 python main.py
 ```
 
@@ -43,12 +43,12 @@ python main.py
 ```
 DP_Guard/
 ├── main.py
+├── pytest.ini
 ├── requirements.txt
 ├── .env.example
 ├── README.md
 ├── DEMO_GUIDE.txt
 ├── ALGORITHMS_AND_STATUS.txt
-├── PROSTYM_YAZYKOM.txt
 ├── data/
 │   ├── ue_sessions.json          # 12 UE-сессий (raw records)
 │   └── network_slices.json         # Топология 6G slices
@@ -96,10 +96,10 @@ pytest tests/ -v
 
 ## Документация
 
-- `PROSTYM_YAZYKOM.txt` — объяснение простыми словами
-- `DEMO_GUIDE.txt` — пошаговая инструкция для преподавателя
+- `DEMO_GUIDE.txt` — пошаговая инструкция для демонстрации
 - `ALGORITHMS_AND_STATUS.txt` — алгоритмы и статус реализации
 
 ## Версия
 
-v1.0.0 — full prototype (скелет расширен до полной версии)
+v1.0.0 — full prototype
+
