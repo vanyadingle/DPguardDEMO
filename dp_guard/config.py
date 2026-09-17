@@ -82,7 +82,7 @@ class DPGuardConfig:
             openai_api_key=openai_key,
             openai_model=_env_str("OPENAI_MODEL", "gpt-4o-mini"),
             gemini_api_key=gemini_key,
-            gemini_model=_env_str("GEMINI_MODEL", "gemini-2.0-flash"),
+            gemini_model=_env_str("GEMINI_MODEL", "gemini-3.6-flash"),
             llm_provider=provider,
             epsilon_total=_env_float("DP_EPSILON_TOTAL", 2.0),
             threat_safety_threshold=_env_float("THREAT_SAFETY_THRESHOLD", 30.0),
