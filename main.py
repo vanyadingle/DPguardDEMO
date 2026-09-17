@@ -8,6 +8,7 @@ and audit logging.
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 
@@ -23,6 +24,7 @@ from dp_guard.orchestrator import Orchestrator
 from dp_guard.privacy_accountant import PrivacyAccountant
 from dp_guard.privacy_policy import PrivacyPolicy
 from dp_guard.telemetry_plane import RawTelemetryStore, TelemetryPlane
+from dp_guard.types import OperatorRole
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -89,20 +91,95 @@ def print_banner(config: DPGuardConfig, orchestrator: Orchestrator) -> None:
     print()
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        prog="dp_guard",
+        description="DP-Guard: Differential Privacy Security Orchestrator for 6G Zero-Touch Networks.",
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
+
+    demo_parser = subparsers.add_parser("demo", help="Run closed-loop orchestration demo")
+    demo_parser.add_argument(
+        "--epochs",
+        type=int,
+        default=3,
+        help="Number of orchestration epochs to run (default: 3)",
+    )
+    demo_parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="Force deterministic offline Mock LLM instead of API",
+    )
+    demo_parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="Explicit flag for LLM mode (default when API key is set in .env)",
+    )
+    demo_parser.add_argument(
+        "--role",
+        type=str,
+        choices=["security_operator", "network_admin", "readonly_auditor"],
+        default=None,
+        help="Operator role for typed policy validation",
+    )
+    demo_parser.add_argument(
+        "--epsilon",
+        type=float,
+        default=None,
+        help="Total privacy budget epsilon (default: 2.0)",
+    )
+
+    return parser.parse_args()
+
+
 def main() -> None:
-    """Run the full DP-Guard demo with three orchestration epochs."""
+    """Main CLI entrypoint."""
+    args = parse_args()
+
+    # If no subcommand passed, default to demo
+    epochs = getattr(args, "epochs", 3)
+    force_mock = getattr(args, "mock", False)
+    role_arg = getattr(args, "role", None)
+    eps_arg = getattr(args, "epsilon", None)
+
     np.random.seed(42)
-    config = DPGuardConfig.from_env()
+    base_config = DPGuardConfig.from_env()
+
+    # Override config based on CLI flags
+    role = OperatorRole(role_arg) if role_arg else base_config.operator_role
+    epsilon = eps_arg if eps_arg is not None else base_config.epsilon_total
+    provider = "mock" if force_mock else base_config.llm_provider
+
+    config = DPGuardConfig(
+        project_root=base_config.project_root,
+        openai_api_key=base_config.openai_api_key,
+        openai_model=base_config.openai_model,
+        gemini_api_key=base_config.gemini_api_key,
+        gemini_model=base_config.gemini_model,
+        llm_provider=provider,
+        epsilon_total=epsilon,
+        threat_safety_threshold=base_config.threat_safety_threshold,
+        anomaly_safety_threshold=base_config.anomaly_safety_threshold,
+        verification_beta=base_config.verification_beta,
+        operator_role=role,
+        telemetry_path=base_config.telemetry_path,
+        topology_path=base_config.topology_path,
+        audit_log_path=base_config.audit_log_path,
+        use_mock_llm=(provider == "mock"),
+    )
+
     orchestrator = build_orchestrator(config)
     print_banner(config, orchestrator)
 
-    intents = [
+    default_intents = [
         "Maintain secure connectivity for eMBB slice under elevated threat watch",
         "Investigate authentication anomalies and packet loss on eMBB-1",
         "Adaptive re-assessment after prior mitigation attempts",
     ]
 
-    for intent in intents:
+    for epoch_idx in range(epochs):
+        intent = default_intents[epoch_idx % len(default_intents)]
         orchestrator.run_epoch(intent)
 
     print("\n" + "=" * 60)
